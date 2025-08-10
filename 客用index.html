@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>じゃがバター予約</title>
+<style>
+  body { font-family: sans-serif; padding: 16px; font-size: 18px; }
+  h1 { font-size: 24px; margin-bottom: 12px; }
+  #count { font-size: 20px; margin-bottom: 10px; white-space: nowrap; overflow-wrap: normal; }
+  label, input, button { font-size: 18px; }
+  input[type="number"] { width: 80px; padding: 6px; }
+  button { padding: 8px 14px; margin-left: 8px; }
+  #result { margin-top: 15px; font-size: 18px; }
+</style>
+</head>
+<body>
+  <h1>じゃがバター 予約</h1>
+  <div id="count">現在の待ち人数: 読み込み中...</div>
+  <label>人数（1〜3人）：<input id="people" type="number" min="1" max="3" value="1" /></label>
+  <button id="reserveBtn" onclick="reserve()">予約する</button>
+  <div id="result">予約情報：なし</div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbw5EeUAcJKV_bh9h3z3hwadHv_wFa6dRbcYbbFfqeeMTcCPawowdfzHoXooI4wUzY5D/exec";
+
+const STORAGE_KEY = "reservation_info";
+
+window.addEventListener("load", () => {
+  refreshStatus();
+  restoreLocal();
+  setInterval(refreshStatus, 5000);
+});
+
+async function refreshStatus() {
+  try {
+    const res = await fetch(GAS_URL);
+    const data = await res.json();
+    document.getElementById("count").innerText = `現在の待ち人数: ${data.totalWaiting}人（推定待ち時間: 約${data.list.length > 0 ? data.list[0].waitMinutes : 0}分）`;
+
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (saved && saved.number) {
+      const mine = data.list.find(item => Number(item.number) === Number(saved.number));
+      if (!mine || mine.state === "キャンセル" || mine.state === "受け取り済み") {
+        localStorage.removeItem(STORAGE_KEY);
+        showNoReservation();
+        alert("あなたの予約はキャンセルまたは受け取り済みになりました。");
+      } else {
+        document.getElementById("result").innerHTML = `受付番号: <b>${mine.number}</b> ／ 人数: ${mine.people}人 ／ 状態: ${mine.state} ／ 推定待ち時間: ${mine.waitMinutes}分<br><button onclick="cancel(${mine.number})">キャンセルする</button>`;
+        document.getElementById("reserveBtn").style.display = "none";
+        document.getElementById("people").value = mine.people;
+        document.getElementById("people").disabled = true;
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function restoreLocal() {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+  if (saved && saved.number) {
+    document.getElementById("result").innerText = `受付番号: ${saved.number} ／ 人数: ${saved.people}人`;
+    document.getElementById("reserveBtn").style.display = "none";
+    document.getElementById("people").disabled = true;
+  }
+}
+
+function showNoReservation() {
+  document.getElementById("result").innerText = "予約情報：なし";
+  document.getElementById("reserveBtn").style.display = "inline-block";
+  document.getElementById("people").disabled = false;
+}
+
+async function reserve() {
+  const people = Number(document.getElementById("people").value);
+  if (!people || people < 1 || people > 3) {
+    alert("予約人数は1〜3人で入力してください。");
+    return;
+  }
+  try {
+    const res = await fetch(GAS_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ action: "reserve", people })
+    });
+    const data = await res.json();
+    if (data.error) {
+      alert(data.error);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ number: data.number, people }));
+    document.getElementById("result").innerText = `受付番号: ${data.number} ／ 人数: ${people}人 ／ 状態: 待ち`;
+    document.getElementById("reserveBtn").style.display = "none";
+    document.getElementById("people").disabled = true;
+    refreshStatus();
+  } catch (err) {
+    alert("予約に失敗しました。通信環境を確認してください。");
+  }
+}
+
+async function cancel(number) {
+  if (!confirm("本当にキャンセルしますか？")) return;
+  try {
+    await fetch(GAS_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ action: "cancel", number })
+    });
+    localStorage.removeItem(STORAGE_KEY);
+    showNoReservation();
+    refreshStatus();
+    alert("キャンセルしました。");
+  } catch (err) {
+    alert("キャンセルに失敗しました。");
+  }
+}
+</script>
+</body>
+</html>
